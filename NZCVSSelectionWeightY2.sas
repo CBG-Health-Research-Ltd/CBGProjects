@@ -35,7 +35,7 @@ PROC IMPORT OUT= psuProbRaw DATAFILE= "C:\Documents and Settings\cbg.thomas\My D
 RUN;
 
 /*selection file for main (it's full sample, but only use for main prob)*/
-PROC IMPORT OUT= HHProbMainRaw DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\1. NZCVS Year2 Main Household Sample V2.xlsx"
+PROC IMPORT OUT= HHProbMainRaw DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\1. NZCVS Year2 Main Household Sample V2 EP.xlsx"
             DBMS=xlsx REPLACE;		
      GETNAMES=YES;
 RUN;
@@ -134,34 +134,21 @@ run;
 /*proc sort data = SelectedHH nodupkey; by PSU2015 NZCVSHHID; run;*/
 /*yes no duplicate*/
 
-
-/***********************************Occupants prob*****************************************/
-data NZCVS.Nzcvsoccupants;
-set nzcvs1.Nzcvsoccupants;
-where qtr in (3,4) and age>=15; *remove pilot records;
-if EthnicityMO='M' then maori=1; else maori=0;
-
-/*patch 4 households with 2 selected respondents
-if nzcvshhid='A0138293' and age=79 then selected=0;
-*/
-/*1 houeshold with reselction but didnt record correctly in SM
-if nzcvshhid='A3104689' then Reselection=1;
-*/
+/*all have total HH, prm,prb when type=S*/
+/*
+data check;
+set SelectedHH; 
+where TotalHH=. or SelectedHH=. or PrM=.;
 run;
 
-/*patch 4 missing occpants
-proc sql;
-  insert into NZCVS.Nzcvsoccupants
-   set 	qtr=2,
-   		psu2015=19147,
-		nzcvshhid='A1154774',
-		age=42,
-		EthnicityMO='O',
-		maori=0,
-		selected=1
-
-;quit;
+data check;
+set SelectedHH; 
+where SampleType='S' and  Prb=.;
+run;
 */
+
+/***********************************Occupants prob*****************************************/
+
 proc sort data= NZCVS.Nzcvsoccupants; by PSU2015 NZCVSHHID; run;
 
 
@@ -206,21 +193,23 @@ run;
 /*0 obs, all good*/
 
 
+
+
 /*******************post-stratify household weight by region***********************/
 /*file for number of HH, breakdown by region*/
-PROC IMPORT OUT= rc_hh DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\rc_hh_estimates.xlsx"
+PROC IMPORT OUT= Regional_Households_30June2019 DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\Regional_Households_30June2019.xlsx"
             DBMS=xlsx REPLACE;		
      GETNAMES=YES;
 RUN;
-data rc_hh;
-set rc_hh;
+data Regional_Households_30June2019;
+set Regional_Households_30June2019;
 where RegionNew ne .;
 drop D;
 run;
 
 data combo;
 set nzcvs2.nzcvscombo;
-where qtr in (3,4);
+where qtr in (3,4,5,6);
 run;
 
 proc sort data = combo(keep=psu2015 PSUResponseRate Region2015) nodupkey out=PSUResponseRate; by psu2015; run;
@@ -266,7 +255,7 @@ run;
 
 data complete;
 set nzcvs2.nzcvscombo;
-where  OutcomeMoJ='INTCOM' and qtr in (3,4); 
+where  OutcomeMoJ='INTCOM' and qtr in (3,4,5,6); 
 keep psu2015 nzcvshhid;
 run;
 
@@ -287,7 +276,7 @@ UNITDSN=calibrationweightsHH,
 OUTDSN=calibrationweightsHH_result,
 INWEIGHT=HHweight_nonresp, 
 WEIGHT=HHWeight_Region,
-B1DSN=Rc_hh, 
+B1DSN=Regional_Households_30June2019, 
 B1CLASS=RegionNew,
 B1TOT=pop,
 ID=_ALL_,
@@ -415,20 +404,22 @@ merge HHWeightFinal occProb;
 by psu2015 nzcvshhid;
 run;
 
+
+
 data selectionWeight;
 set selectionWeight;
-SelectionProb= (1/HHweight_nonresp)*OccProb;
+if OccProb ne . then SelectionProb= (1/HHweight_nonresp)*OccProb;
 SelectionWeight=1/SelectionProb;
 run;
 
 
 /* file population number age sex breakdown by region*/
-PROC IMPORT OUT= Regional_AgeSex DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\Regional Council  x age  x sex_clean.xlsx"
+PROC IMPORT OUT= Regional_Age_Sex_30June2019 DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\Regional_Age_Sex_30June2019.xlsx"
             DBMS=xlsx REPLACE;		
      GETNAMES=YES;
 RUN;
-data Regional_AgeSex;
-set Regional_AgeSex;
+data Regional_Age_Sex_30June2019;
+set Regional_Age_Sex_30June2019;
 where AgeGroup not in ('Total','0-14');
 run;
 
@@ -481,13 +472,39 @@ if in1 and in2;
 by  psu2015 nzcvshhid; 
 run;
 
+/*check age gender
+data try;
+set age_sex;
+where Region2015=. or Sex='' or agegroup='';
+run;
+
+6 record missing
+
+
+data try;
+set nzcvs.Year2_NZCVSSurvey;
+where nzcvshhid in ('A0295568','A1162285','A3063580','A0947597','A1070361','A1589512');
+keep nzcvshhid ID1_01 ID1_02;
+run;
+
+check suvey data and patch*/
+data age_sex;
+set age_sex;
+if nzcvshhid='A1162285' then do sex='M';agegroup='15-39'; end;
+if nzcvshhid='A1070361' then do sex='F';agegroup='65+'; end;
+if nzcvshhid='A1589512' then do sex='M';agegroup='40-64'; end;
+if nzcvshhid='A0947597' then do sex='F';agegroup='15-39'; end;
+if nzcvshhid='A0295568' then do sex='M';agegroup='40-64'; end;
+if nzcvshhid='A3063580' then do sex='M';agegroup='40-64'; end;
+run; 
+
 
 %GREGWT(
 UNITDSN=age_sex, 
 OUTDSN=age_sex_result,
 INWEIGHT=SelectionWeight, 
 WEIGHT=SelectionWeight_AgeSex,
-B1DSN=Regional_AgeSex, 
+B1DSN=Regional_Age_Sex_30June2019, 
 B1CLASS=Region2015 Sex agegroup,
 B1TOT=pop,
 ID=_ALL_
@@ -500,15 +517,30 @@ by psu2015 nzcvshhid;
 run;
 
 /* file population number maori non-maori breakdown by region*/
-PROC IMPORT OUT= Regional_maori DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\BG_Regional_maori_2018_v2.xlsx"
+PROC IMPORT OUT= Regional_Maori_30June2019 DATAFILE= "C:\Documents and Settings\cbg.thomas\My Documents\data\NZCVS\Regional_Maori_30June2019.xlsx"
             DBMS=xlsx REPLACE;		
      GETNAMES=YES;
 RUN;
 
 data maori;
 set selectionWeight;
-where SelectionWeight_AgeSex ne 0;
+where SelectionWeight_AgeSex > 0;
 keep psu2015 nzcvshhid SelectionWeight_AgeSex  Region2015 EthnicityMO repgrp;
+run;
+
+/*check eth
+data check;
+set maori;
+where EthnicityMO='';
+run;
+
+6 people miss eth. checked survey eth, all 'O'
+*/
+
+/*patch 6 missing*/
+data maori;
+set maori;
+if EthnicityMO='' then EthnicityMO='O';
 run;
 
 data maori;
@@ -526,7 +558,7 @@ UNITDSN=maori,
 OUTDSN=maori_result,
 INWEIGHT=SelectionWeight_AgeSex,
 WEIGHT=PERSONWEIGHT,
-B1DSN=Regional_maori,
+B1DSN=Regional_Maori_30June2019,
 B1CLASS=Region2015 EthnicityMO,
 B1TOT=pop,
 ID=_ALL_,
@@ -665,34 +697,47 @@ run;
 
 
 
-data try;
-set nzcvs.SelectionWeightYear2;
-run;
 
 /*check complete surveys all have weight*/
 /*
 data combo;
 set nzcvs2.nzcvscombo;
 keep qtr psu2015 nzcvshhid outcomeMOJ;
-where outcomeMOJ='INTCOM' and qtr in (3,4);
+where outcomeMOJ='INTCOM' and qtr in (3,4,5,6);
 run;
 
 proc sort data = combo; by psu2015 nzcvshhid; run;
 
 data check;
-merge selectionWeight combo(in=in1);
+merge nzcvs.SelectionWeightYear2 combo(in=in1);
 by psu2015 nzcvshhid;
 if in1;
 run;
 
 data check;
 set check;
-where SelectionWeight=.;
+where SelectionWeight=. or PersonWeight=. or hholdweight=.;
+keep qtr psu2015 nzcvshhid SelectionWeight HHWeight OccProb SelectedHH TotalHH PSUProb;
 run;
 */
 /*0 obs all good*/
 
+/*
+data try;
+set NZCVS1.Nzcvsoccupants;
+where nzcvshhid in ('A0661885','A1414782','A0557859','A2264325','A1271068','A0451636','A0411301');
+run;
 
+data try;
+set check;
+where TotalHH=.;
+keep qtr psu2015 nzcvshhid SelectionWeight HHWeight OccProb SelectedHH TotalHH PSUProb type;
+run;
+
+
+proc export data=try outfile="C:\Documents and Settings\cbg.thomas\My Documents\Misc\MissingHHWeight.csv" replace;
+run;
+*/
 /*check weights sum*/
 
 /*
@@ -700,21 +745,21 @@ ods html body="check_weights.html"
 path="C:\Documents and Settings\cbg.thomas\My Documents\misc"
 style=journal;
 title 'check_hh_region';
-proc tabulate data=  nzcvs.SelectionWeight;
+proc tabulate data=  nzcvs.SelectionWeightYear2;
 class regionNew;
-var HHWeight_region;
-table regionNew all,HHWeight_region*sum;
+var hholdweight;
+table regionNew all,hholdweight*sum;
 run;
 
 title 'SelectionWeight_AgeSex';
-proc tabulate data=  nzcvs.SelectionWeight;;
+proc tabulate data=  nzcvs.SelectionWeightYear2;
 class region2015 sex agegroup;
 var SelectionWeight_AgeSex ;
 table region2015*agegroup*sex all,SelectionWeight_AgeSex*sum;
 run;
 
 title 'SelectionWeight_Maori';
-proc tabulate data=  nzcvs.SelectionWeight;;
+proc tabulate data=  nzcvs.SelectionWeightYear2;
 class Region2015 EthnicityMO;
 var PersonWeight ;
 table Region2015*EthnicityMO all,PersonWeight*sum;
@@ -723,3 +768,42 @@ ods html close;
 
 */
 /*all weights match pop total*/
+
+/*
+ods html body="check_weights_total.html"
+path="C:\Documents and Settings\cbg.thomas\My Documents\misc"
+style=journal;
+title 'check_hh_region';
+proc tabulate data=  nzcvs.SelectionWeightYear2;
+var hholdweight;
+table hholdweight*sum;
+run;
+
+title 'SelectionWeight_AgeSex';
+proc tabulate data=  nzcvs.SelectionWeightYear2;
+var SelectionWeight_AgeSex ;
+table SelectionWeight_AgeSex*sum;
+run;
+
+title 'SelectionWeight_Maori';
+proc tabulate data=  nzcvs.SelectionWeightYear2;
+var PersonWeight ;
+table PersonWeight*sum;
+run;
+ods html close;
+*/
+
+
+data try;
+set nzcvs.SelectionWeightYear2;
+where EthnicityMO not in ('M','O') and PersonWeight ne .;
+keep nzcvshhid EthnicityMO Region2015 PersonWeight;
+run;
+
+
+
+
+data try1;
+set nzcvs2.nzcvscombo;
+where nzcvshhid in ('A0295568','A1162285','A3063580','A0947597','A1070361','A1589512');
+run;
